@@ -11,3 +11,4 @@ langdetect
 immutabledict
 rouge-score
 sentencepiece
+tensorboard>=2.18

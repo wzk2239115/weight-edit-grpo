@@ -242,6 +242,8 @@ def main():
             update_result = update(model, optimizer, trajectories, rewards, args)
             summary = dict(step=step, rewards=rewards, **update_result)
             (directory / 'update.json').write_text(json.dumps(summary))
+            from tensorboard_logs import write_run
+            write_run(out)
             print(json.dumps(summary), flush=True)
             model.save_pretrained(directory / 'editor-adapter')
             torch.save(optimizer.state_dict(), directory / 'optimizer.pt')

@@ -80,7 +80,23 @@ Current first version uses Transformers generation for transparent in-memory edi
 it has not been optimized to vLLM throughput. No inference settings change between
 baseline and edits. Log truncation and increase token budgets if needed.
 
-## Held-out evaluation
+## TensorBoard
+
+```bash
+source remote-env.sh
+.venv/bin/python -m pip install tensorboard
+.venv/bin/python tensorboard_logs.py
+.venv/bin/tensorboard --logdir "$PWD/runs" --host 127.0.0.1 --port 6006
+```
+
+For JupyterLab's TensorBoard launcher, enter the absolute `runs` directory as
+the log directory. New runs write scalars after each completed group; the backfill
+command imports JSON records from runs started before TensorBoard was added.
+An empty dashboard before the first group completes is expected. `train/update_count`
+counts actual updates; equal rewards skip updates. UI access depends on the platform's
+TensorBoard or authenticated port-proxy support.
+
+## Held-out evaluation commands
 
 ```bash
 .venv/bin/python train.py \
