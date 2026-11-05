@@ -58,6 +58,15 @@ python3 -m venv --system-site-packages .venv
 
 Or run `bash setup.sh` after cloning to perform those steps together.
 
+Before evaluating Qwen3.6-27B, run `bash accelerate.sh`. It installs pinned
+`causal-conv1d` and FLA kernels into `.venv`, retaining the container's PyTorch.
+The check executes BF16 CUDA convolution and Gated DeltaNet kernels, verifies
+Transformers dispatch, and generates twice with the actual B (including cached
+decoding). The first pass can include Triton compilation; the printed token rate
+is a short inference check, not a benchmark throughput estimate. All build and
+runtime caches stay below this repository. Recheck without reinstalling with
+`source remote-env.sh; .venv/bin/python acceleration-check.py`.
+
 `remote-env.sh` sets the corporate proxy, `HF_ENDPOINT=https://hf-mirror.com`, and
 explicit local cache/temp paths. The mirror must be reachable; the IFEval checker
 also requires access to raw.githubusercontent.com and NLTK's download host. Downloads

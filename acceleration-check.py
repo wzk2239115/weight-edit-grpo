@@ -5,6 +5,7 @@ import inspect
 import time
 
 import torch
+import triton
 from causal_conv1d import causal_conv1d_fn
 from fla.ops.gated_delta_rule import chunk_gated_delta_rule, fused_recurrent_gated_delta_rule
 
@@ -27,7 +28,8 @@ def main():
     args = parser.parse_args()
     assert torch.cuda.is_available()
     print('GPU:', torch.cuda.get_device_name(0), 'torch:', torch.__version__, flush=True)
-    for package in ('triton', 'fla-core', 'flash-linear-attention', 'causal-conv1d'):
+    print('triton:', triton.__version__, flush=True)
+    for package in ('fla-core', 'flash-linear-attention', 'causal-conv1d'):
         print(package, metadata.version(package), flush=True)
     torch.manual_seed(42)
     x = torch.randn(2, 128, 128, device='cuda', dtype=torch.bfloat16)
