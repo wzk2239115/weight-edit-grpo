@@ -66,6 +66,10 @@ decoding). The first pass can include Triton compilation; the printed token rate
 is a short inference check, not a benchmark throughput estimate. All build and
 runtime caches stay below this repository. Recheck without reinstalling with
 `source remote-env.sh; .venv/bin/python acceleration-check.py`.
+The current NVIDIA container supplies Triton 3.2.0; FLA recommends 3.3+, so it
+prints a version warning. CUDA numerical checks and real B prefill/cached decoding
+passed on this installed stack; other shapes and workloads are not covered by
+that short check. No PyTorch/Triton upgrade is performed by the installer.
 
 `remote-env.sh` sets the corporate proxy, `HF_ENDPOINT=https://hf-mirror.com`, and
 explicit local cache/temp paths. The mirror must be reachable; the IFEval checker
