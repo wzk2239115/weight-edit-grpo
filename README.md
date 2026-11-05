@@ -10,7 +10,14 @@ No scheduler, service framework, arbitrary Python execution, or distributed RL s
 
 ## What is implemented
 
-- Multi-turn matrix reads, then one rectangular edit of up to 256 scalar values.
+- An architecture-aware diagnostic prompt in `prompts.py`, reward-only baseline
+  failure examples, a global layer survey and optional selected-layer matrix statistics.
+  Statistics suggest hypotheses; they do not establish neuron semantics or causality.
+- Up to 12 inspection actions, then one rectangular edit of up to 256 scalar values.
+  The policy must explain its evidence, obtain the survey, and read actual blocks from
+  at least three distinct layers and two matrix families before editing. The policy
+  chooses all layers, coordinates, block sizes and numerical values; layer zero is
+  permitted when justified. Fixed zero-coordinate sample patches have been removed.
   This is an initial action budget, not a claim that 256 values suffice to improve a 27B model.
 - BF16 writes checked for finite values and actual changes after rounding.
 - Each candidate starts from the same B; modified entries are restored in `finally`.

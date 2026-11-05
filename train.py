@@ -10,17 +10,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / 'vendor'))
 from edits import parse_action, reward
 from worker import serve
-
-SYSTEM = '''You edit another neural network's floating-point weights to improve math while
-preserving knowledge and instruction following. Select layers and matrix entries yourself.
-Reply with exactly one JSON object. To inspect weights:
-{"op":"read","tensor":"exact name","row":0,"col":0,"rows":4,"cols":4}
-To submit your final edit (absolute NEW floating-point values, not deltas):
-{"op":"edit","tensor":"exact name","row":0,"col":0,"values":[[0.012,-0.034]]}
-You may read several blocks, then submit ONE rectangular edit with at most 256 elements.
-No gradients, optimizers, predefined matrix transformations, or edits to inference settings.
-The executor only copies the numbers you supply. A no-op edit is invalid.'''
-
+from prompts import SYSTEM, diagnostics
 
 class WorkerFailure(RuntimeError):
     pass
@@ -56,15 +46,17 @@ def token_logps(model, prefix, completion):
     return logits.log_softmax(-1).gather(-1, completion.unsqueeze(-1)).squeeze(-1)
 
 
-def episode(model, tokenizer, catalog, worker, args):
+def episode(model, tokenizer, catalog, worker, args, feedback):
     import torch
     messages = [dict(role='system', content=SYSTEM), dict(role='user', content=
         'Goal: improve mathematical reasoning without losing other abilities.\n'
-        + 'Available layer indices and matrix templates:\n' + json.dumps(catalog))]
+        + 'Available layer indices and matrix templates:\n' + json.dumps(catalog)
+        + '\nBaseline observations (reward data only):\n' + json.dumps(feedback))]
     trajectory = []
+    surveyed, layers_read, families_read = False, set(), set()
     for step in range(args.reads + 1):
         if step == args.reads:
-            messages.append(dict(role='user', content='Read budget exhausted. Submit your final edit now.'))
+            messages.append(dict(role='user', content='Inspection budget exhausted. Compare your evidence and submit the final numerical edit.'))
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         prefix = tokenizer(prompt, return_tensors='pt', add_special_tokens=False).input_ids.to(model.device)
         if prefix.shape[1] > args.prompt_tokens:
@@ -81,12 +73,22 @@ def episode(model, tokenizer, catalog, worker, args):
         messages.append(dict(role='assistant', content=text))
         try:
             action = parse_action(text)
+            if not isinstance(action.get('analysis'), str) or not action['analysis'].strip():
+                raise ValueError('Include your evidence and decision in the analysis field')
             if action['op'] == 'edit':
+                if not surveyed or len(layers_read) < 3 or len(families_read) < 2:
+                    raise ValueError('Inspect the global survey, three distinct layers and two matrix families first')
                 return trajectory, action, None, messages
             if step == args.reads:
                 raise ValueError('Read budget exhausted')
-            worker[0].put(dict(op='read', action=action))
+            worker[0].put(dict(op=action['op'], action=action))
             result = receive(worker)
+            if action['op'] == 'survey':
+                surveyed = True
+            else:
+                import re
+                layers_read.add(int(re.search(r'\.layers\.(\d+)\.', action['tensor'])[1]))
+                families_read.add(action['tensor'].split('.layers.')[1].split('.', 1)[1])
         except WorkerFailure:
             raise
         except Exception as exc:
@@ -129,7 +131,7 @@ def main():
     p.add_argument('--a-gpu', type=int, default=0)
     p.add_argument('--steps', type=int, default=10)
     p.add_argument('--group', type=int, default=7)
-    p.add_argument('--reads', type=int, default=4)
+    p.add_argument('--reads', type=int, default=12, help='Maximum inspection actions, including survey')
     p.add_argument('--per-suite', type=int, default=0, help='0 (default) = complete split; positive limits are debug only')
     p.add_argument('--batch-size', type=int, default=4)
     p.add_argument('--eval-tokens', type=int, default=2048)
@@ -148,8 +150,8 @@ def main():
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import LoraConfig, get_peft_model
-    if args.group < 2 or args.update_epochs < 1:
-        p.error('group >= 2 and update-epochs >= 1 required')
+    if args.group < 2 or args.update_epochs < 1 or args.reads < 4:
+        p.error('group >= 2, update-epochs >= 1 and reads >= 4 required')
     if args.per_suite < 0:
         p.error('per-suite must be nonnegative')
     out = Path(args.out).resolve()
@@ -222,7 +224,8 @@ def main():
                 pending = []
                 for i in range(start, min(start + len(workers), args.group)):
                     w = workers[i - start]
-                    trajectory, action, error, messages = episode(model, tokenizer, catalogs[0], w, args)
+                    trajectory, action, error, messages = episode(
+                        model, tokenizer, catalogs[0], w, args, diagnostics(rows, baselines[0]))
                     trajectories.append(trajectory)
                     record = dict(candidate=i, action=action, error=error, messages=messages)
                     records.append(record)

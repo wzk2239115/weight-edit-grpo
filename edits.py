@@ -10,8 +10,8 @@ def parse_action(text):
         text = re.sub(r'^```(?:json)?\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
     action = json.loads(text)
-    if not isinstance(action, dict) or action.get('op') not in ('read', 'edit'):
-        raise ValueError('Expected one JSON object, op=read or edit')
+    if not isinstance(action, dict) or action.get('op') not in ('survey', 'read', 'edit'):
+        raise ValueError('Expected one JSON object, op=survey, read or edit')
     return action
 
 

@@ -108,9 +108,14 @@ def serve(model_path, gpu, incoming, outgoing, options):
             template = re.sub(r'(?<=layers\.)\d+', '{layer}', name)
             catalog[template] = list(tensor.shape)
         layer_ids = sorted({int(re.search(r'\.layers\.(\d+)\.', n)[1]) for n in matrices})
-        outgoing.put(('ready', dict(templates=catalog, layers=layer_ids)))
+        config = model.config.to_dict()
+        text_config = config.get('text_config', config)
+        architecture = {k: text_config[k] for k in ('model_type', 'hidden_size', 'intermediate_size',
+            'num_attention_heads', 'num_key_value_heads', 'layer_types', 'hidden_act') if k in text_config}
+        outgoing.put(('ready', dict(templates=catalog, layers=layer_ids, architecture=architecture)))
         baseline = None
         rows = None
+        survey = None
         while True:
             job = incoming.get()
             if job['op'] == 'stop':
@@ -125,6 +130,36 @@ def serve(model_path, gpu, incoming, outgoing, options):
                     outgoing.put(('ok', baseline))
                     continue
                 action = job['action']
+                if job['op'] == 'survey':
+                    if survey is None:
+                        survey = []
+                        with torch.no_grad():
+                            for layer in layer_ids:
+                                entries, total_sq, count, largest = [], 0., 0, 0.
+                                for name, tensor in matrices.items():
+                                    if f'.layers.{layer}.' not in name:
+                                        continue
+                                    values = tensor.detach().float()
+                                    mean, std = values.mean().item(), values.std(unbiased=False).item()
+                                    rms = (mean * mean + std * std) ** .5
+                                    absolute_max = values.abs().max().item()
+                                    total_sq += rms * rms * values.numel()
+                                    count += values.numel()
+                                    largest = max(largest, absolute_max)
+                                    entries.append(dict(family=name.split(f'.layers.{layer}.')[1],
+                                        mean=round(mean, 7), rms=round(rms, 7), absmax=round(absolute_max, 7)))
+                                survey.append(dict(layer=layer, rms=round((total_sq / count)**.5, 7),
+                                    absmax=round(largest, 7), matrices=entries))
+                    selected = action.get('layers')
+                    if selected is not None:
+                        if (not isinstance(selected, list) or not 1 <= len(selected) <= 8
+                                or any(type(x) is not int or x not in layer_ids for x in selected)):
+                            raise ValueError('layers must contain one to eight valid layer indices')
+                        result = [x for x in survey if x['layer'] in selected]
+                    else:
+                        result = [{k: v for k, v in x.items() if k != 'matrices'} for x in survey]
+                    outgoing.put(('ok', dict(layers=result)))
+                    continue
                 if action['tensor'] not in matrices:
                     raise ValueError('Unknown or non-layer matrix')
                 tensor = matrices[action['tensor']]
