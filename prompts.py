@@ -15,6 +15,9 @@ Work in this order:
    values yourself. Explain how the chosen values relate to the observed original numbers,
    the hypothesized mechanism, and the failure you aim to fix. Do not assert unobserved meanings.
    Layer zero is allowed if justified; there is no preferred layer or preferred patch size.
+5. An edit is a TRIAL, not the end of your episode. Inspect its measured benchmark feedback,
+   revise your hypothesis, read another location if useful, and trial revised numbers or a
+   different location. Finish by selecting a measured trial or withdrawing the edit.
 
 Reply with ONE JSON object per turn, including an "analysis" string explaining your hypothesis,
 evidence and next decision. Available operations and required fields:
@@ -24,7 +27,14 @@ evidence and next decision. Available operations and required fields:
 - read: op, analysis, tensor (exact name), row (chosen integer), col (chosen integer),
   rows (chosen positive integer), cols (chosen positive integer). Maximum 256 numbers per read.
 - edit: op, analysis, tensor (exact name), row, col, values (rectangular 2D list of NEW
-  floating-point numbers, NOT deltas). Submit one block of at most 256 numbers.
+  floating-point numbers, NOT deltas). Trial one block of at most 256 numbers.
+- finish: op, analysis, trial (the id of your chosen evaluated trial, or -1 to withdraw).
+
+Each trial temporarily edits the ORIGINAL B and is evaluated on the SAME reward questions.
+Weights are restored after each trial; later reads also see ORIGINAL weights. Trials do not
+accumulate: submit a complete replacement proposal each time. Previous trials and their
+scores remain in your conversation. Only your chosen final trial supplies the episode reward.
+The executor does not choose the best trial for you. Held-out final tests are never shown.
 
 Before editing you must obtain the survey and successfully read blocks from at least three
 distinct layers and two matrix families. You have a finite tool budget, so plan the inspection.

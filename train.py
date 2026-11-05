@@ -46,21 +46,25 @@ def token_logps(model, prefix, completion):
     return logits.log_softmax(-1).gather(-1, completion.unsqueeze(-1)).squeeze(-1)
 
 
-def episode(model, tokenizer, catalog, worker, args, feedback):
+def episode(model, tokenizer, catalog, args, feedback, rows):
+    """Yield tool requests so independent search episodes can share A and parallel B replicas."""
     import torch
+    import re
     messages = [dict(role='system', content=SYSTEM), dict(role='user', content=
         'Goal: improve mathematical reasoning without losing other abilities.\n'
         + 'Available layer indices and matrix templates:\n' + json.dumps(catalog)
-        + '\nBaseline observations (reward data only):\n' + json.dumps(feedback))]
-    trajectory = []
+        + '\nBaseline observations (reward data only):\n' + json.dumps(feedback)
+        + f'\nBudget: {args.reads} inspections, {args.trials} trial edits, then finish.')]
+    trajectory, trials = [], []
     surveyed, layers_read, families_read = False, set(), set()
-    for step in range(args.reads + 1):
-        if step == args.reads:
-            messages.append(dict(role='user', content='Inspection budget exhausted. Compare your evidence and submit the final numerical edit.'))
+    inspections, attempts = 0, 0
+    for step in range(args.reads + args.trials + 1):
+        if step == args.reads + args.trials:
+            messages.append(dict(role='user', content='Action budget exhausted. Use finish to select a measured trial, or trial=-1 to withdraw.'))
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         prefix = tokenizer(prompt, return_tensors='pt', add_special_tokens=False).input_ids.to(model.device)
         if prefix.shape[1] > args.prompt_tokens:
-            return trajectory, None, 'Prompt budget exceeded', messages
+            break
         with torch.no_grad():
             ids = model.generate(prefix, attention_mask=torch.ones_like(prefix), do_sample=True,
                                  temperature=args.temperature, top_p=.95,
@@ -75,27 +79,75 @@ def episode(model, tokenizer, catalog, worker, args, feedback):
             action = parse_action(text)
             if not isinstance(action.get('analysis'), str) or not action['analysis'].strip():
                 raise ValueError('Include your evidence and decision in the analysis field')
+            if action['op'] == 'finish':
+                selected = action.get('trial')
+                if type(selected) is not int or not -1 <= selected < len(trials):
+                    raise ValueError('Choose a measured trial id or -1 to withdraw')
+                if selected == -1:
+                    result = dict(base=feedback['scores'], edited=feedback['scores'], changed=0,
+                                  results=[], reward=0., target_gain=0., drops={}, passed=True)
+                    patch = None
+                else:
+                    chosen = trials[selected]
+                    patch, result = chosen['action'], chosen['result']
+                return trajectory, dict(action=patch, error=None, messages=messages,
+                                         trials=trials, selected_trial=selected, **result)
+            if step == args.reads + args.trials:
+                raise ValueError('Only finish is allowed now')
             if action['op'] == 'edit':
                 if not surveyed or len(layers_read) < 3 or len(families_read) < 2:
                     raise ValueError('Inspect the global survey, three distinct layers and two matrix families first')
-                return trajectory, action, None, messages
-            if step == args.reads:
-                raise ValueError('Read budget exhausted')
-            worker[0].put(dict(op=action['op'], action=action))
-            result = receive(worker)
-            if action['op'] == 'survey':
+                if attempts >= args.trials:
+                    raise ValueError('Trial budget exhausted; inspect or finish')
+                attempts += 1
+            else:
+                if inspections >= args.reads:
+                    raise ValueError('Inspection budget exhausted; trial an edit or finish')
+                inspections += 1
+            result = yield dict(op=action['op'], action=action)
+            if 'error' in result:
+                raise ValueError(result['error'])
+            if action['op'] == 'edit':
+                result.update(reward(result['base'], result['edited'], args.tolerance))
+                trial_id = len(trials)
+                trials.append(dict(id=trial_id, action=action, result=result))
+                result = dict(trial=trial_id, changed=result['changed'],
+                              **reward(result['base'], result['edited'], args.tolerance),
+                              observations=diagnostics(rows, dict(scores=result['edited'], results=result['results'])))
+            elif action['op'] == 'survey':
                 surveyed = True
             else:
-                import re
                 layers_read.add(int(re.search(r'\.layers\.(\d+)\.', action['tensor'])[1]))
                 families_read.add(action['tensor'].split('.layers.')[1].split('.', 1)[1])
-        except WorkerFailure:
-            raise
         except Exception as exc:
             result = dict(error=str(exc))
-        # User role keeps this compatible with models without tool-role templates.
-        messages.append(dict(role='user', content='Weight reader result: ' + json.dumps(result)))
-    return trajectory, None, 'No edit submitted', messages
+        messages.append(dict(role='user', content='Tool observation: ' + json.dumps(result)))
+    return trajectory, dict(action=None, error='No valid finish before context/action budget',
+                             messages=messages, trials=trials, reward=-2.)
+
+
+def run_searches(generators, workers):
+    """Round-robin A turns; dispatch B tool requests before waiting for their feedback."""
+    active = dict(enumerate(generators))
+    replies, finished = {}, {}
+    while active:
+        pending = []
+        for index, generator in list(active.items()):
+            try:
+                request = generator.send(replies.pop(index, None))
+                workers[index][0].put(request)
+                pending.append(index)
+            except StopIteration as done:
+                finished[index] = done.value
+                del active[index]
+        for index in pending:
+            try:
+                replies[index] = receive(workers[index])
+            except WorkerFailure:
+                raise
+            except Exception as exc:
+                replies[index] = dict(error=str(exc))
+    return [finished[i] for i in range(len(generators))]
 
 
 def update(model, optimizer, trajectories, rewards, args):
@@ -131,6 +183,7 @@ def main():
     p.add_argument('--a-gpu', type=int, default=0)
     p.add_argument('--steps', type=int, default=10)
     p.add_argument('--group', type=int, default=7)
+    p.add_argument('--trials', type=int, default=3, help='Maximum evaluated edits per episode')
     p.add_argument('--reads', type=int, default=12, help='Maximum inspection actions, including survey')
     p.add_argument('--per-suite', type=int, default=0, help='0 (default) = complete split; positive limits are debug only')
     p.add_argument('--batch-size', type=int, default=4)
@@ -150,8 +203,8 @@ def main():
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import LoraConfig, get_peft_model
-    if args.group < 2 or args.update_epochs < 1 or args.reads < 4:
-        p.error('group >= 2, update-epochs >= 1 and reads >= 4 required')
+    if args.group < 2 or args.update_epochs < 1 or args.reads < 4 or args.trials < 1:
+        p.error('group >= 2, update-epochs >= 1 and reads >= 4, trials >= 1 required')
     if args.per_suite < 0:
         p.error('per-suite must be nonnegative')
     out = Path(args.out).resolve()
@@ -221,28 +274,12 @@ def main():
                 raise RuntimeError('B worker baselines disagree; do not compare noisy groups')
             trajectories, records = [], []
             for start in range(0, args.group, len(workers)):
-                pending = []
-                for i in range(start, min(start + len(workers), args.group)):
-                    w = workers[i - start]
-                    trajectory, action, error, messages = episode(
-                        model, tokenizer, catalogs[0], w, args, diagnostics(rows, baselines[0]))
+                indices = range(start, min(start + len(workers), args.group))
+                searches = [episode(model, tokenizer, catalogs[0], args,
+                                    diagnostics(rows, baselines[0]), rows) for i in indices]
+                for i, (trajectory, record) in zip(indices, run_searches(searches, workers)):
                     trajectories.append(trajectory)
-                    record = dict(candidate=i, action=action, error=error, messages=messages)
-                    records.append(record)
-                    if action is not None:
-                        w[0].put(dict(op='edit', action=action))
-                        pending.append((w, record))
-                    else:
-                        record['reward'] = -2.
-                for w, record in pending:
-                    try:
-                        result = receive(w)
-                        record.update(result)
-                        record.update(reward(result['base'], result['edited'], args.tolerance))
-                    except WorkerFailure:
-                        raise
-                    except Exception as exc:
-                        record.update(error=str(exc), reward=-2.)
+                    records.append(dict(candidate=i, **record))
             rewards = [r['reward'] for r in records]
             # Persist candidates before the update so failed runs retain their evidence.
             (directory / 'candidates.json').write_text(json.dumps(records))

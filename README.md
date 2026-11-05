@@ -13,7 +13,13 @@ No scheduler, service framework, arbitrary Python execution, or distributed RL s
 - An architecture-aware diagnostic prompt in `prompts.py`, reward-only baseline
   failure examples, a global layer survey and optional selected-layer matrix statistics.
   Statistics suggest hypotheses; they do not establish neuron semantics or causality.
-- Up to 12 inspection actions, then one rectangular edit of up to 256 scalar values.
+- Up to 12 inspection actions and 3 evaluated trial edits per episode (`--reads`,
+  `--trials`). A sees each trial's scores, preservation failures and sample outputs,
+  can inspect again and revise, then explicitly selects a trial with `finish` or
+  withdraws with `trial=-1` (zero reward). Each proposal is one rectangular block
+  of up to 256 scalar values, evaluated against the original B; trials do not accumulate.
+  The whole read/edit/feedback/selection trajectory receives the final group reward.
+  Search episodes are interleaved so B replicas can evaluate different trials concurrently.
   The policy must explain its evidence, obtain the survey, and read actual blocks from
   at least three distinct layers and two matrix families before editing. The policy
   chooses all layers, coordinates, block sizes and numerical values; layer zero is
