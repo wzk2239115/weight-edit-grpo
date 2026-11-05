@@ -54,6 +54,7 @@ fail loudly if blocked. No credentials are needed for the selected public datase
 
 First verify loading, tool output, patches, evaluation and policy gradients with
 two B replicas and 8 questions **per suite**. This is a plumbing check only.
+`bash smoke.sh` runs the following with batch size 2.
 
 ```bash
 .venv/bin/python train.py \

@@ -72,7 +72,8 @@ def episode(model, tokenizer, catalog, worker, args):
         with torch.no_grad():
             ids = model.generate(prefix, attention_mask=torch.ones_like(prefix), do_sample=True,
                                  temperature=args.temperature, top_p=.95,
-                                 max_new_tokens=args.edit_tokens, pad_token_id=tokenizer.pad_token_id)
+                                 max_new_tokens=args.edit_tokens, pad_token_id=tokenizer.pad_token_id,
+                                 use_cache=True)
             completion = ids[:, prefix.shape[1]:]
             old = token_logps(model, prefix, completion).detach()
         text = tokenizer.decode(completion[0], skip_special_tokens=True)
