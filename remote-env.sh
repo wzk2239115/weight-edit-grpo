@@ -16,6 +16,7 @@ export HF_HUB_DISABLE_XET=1
 export TMPDIR="$WE_ROOT/cache/tmp" PIP_CACHE_DIR="$WE_ROOT/cache/pip"
 export XDG_CACHE_HOME="$WE_ROOT/cache" TORCH_HOME="$WE_ROOT/cache/torch"
 export TRITON_CACHE_DIR="$WE_ROOT/cache/triton" CUDA_CACHE_PATH="$WE_ROOT/cache/cuda"
+export TORCH_EXTENSIONS_DIR="$WE_ROOT/cache/torch-extensions"
 export NLTK_DATA="$WE_ROOT/cache/nltk" PYTHONDONTWRITEBYTECODE=1
 export TOKENIZERS_PARALLELISM=false
 export PYTHONPATH="$WE_ROOT/vendor${PYTHONPATH:+:$PYTHONPATH}"
