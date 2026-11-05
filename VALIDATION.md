@@ -13,5 +13,17 @@ Local Mac, Python 3.12; this is **not** a GPU training result.
 - Scorers accepted sampled reference math/knowledge answers; all 114 held-out
   IFEval items executed their checkers on dummy output without dependency errors.
 
-Still required: GPU environment/data setup, actual A/B loading, latency/memory
-measurement, and a real editor training group. No capability improvement established.
+GPU follow-up through JupyterLab:
+
+- Repository cloned under the agreed `wangzekai/tmp` directory.
+- Setup completed, six tests passed in the GPU container, four suites downloaded
+  through the configured proxy/HF mirror. Split checksums matched the local files.
+- `smoke.sh` launched: two 27B B replicas and the 4B A loaded successfully.
+- B reported missing `causal-conv1d` and `flash-linear-attention`; generation uses
+  the slower reference implementation. Large-scale throughput is not yet validated.
+- The group was still running when UI control returned `noWindowsAvailable`.
+  Its outcome and any actual A update remain unconfirmed.
+
+Still required: read the completed smoke result, measure latency/memory, address
+the B inference bottleneck, and run a real editor training group with informative
+rewards. No capability improvement established.
