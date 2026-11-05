@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import urllib.request
+import zipfile
 
 from datasets import load_dataset
 
@@ -58,10 +59,20 @@ def main():
     ds = [json.loads(x) for x in (vendor / 'data/input_data.jsonl').read_text().splitlines()]
     rows += partition([dict(prompt=x['prompt'], answer='', instruction_id_list=x['instruction_id_list'],
                             kwargs=x['kwargs'], key=x['key']) for x in ds], 'ifeval', 'partitioned_test')
-    import nltk
+    # Fixed official resource URLs also work behind explicit corporate proxies.
+    nltk_dir = Path(os.environ.get('NLTK_DATA', str(ROOT / 'cache/nltk')))
+    (nltk_dir / 'tokenizers').mkdir(parents=True, exist_ok=True)
     for name in ('punkt', 'punkt_tab'):
-        if not nltk.download(name, download_dir=os.environ.get('NLTK_DATA', str(ROOT / 'cache/nltk'))):
-            raise RuntimeError(f'NLTK download failed: {name}')
+        archive = nltk_dir / 'tokenizers' / f'{name}.zip'
+        urllib.request.urlretrieve(
+            f'https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/{name}.zip',
+            archive)
+        destination = (nltk_dir / 'tokenizers').resolve()
+        with zipfile.ZipFile(archive) as bundle:
+            for member in bundle.namelist():
+                if not (destination / member).resolve().is_relative_to(destination):
+                    raise ValueError('Unsafe archive path')
+            bundle.extractall(destination)
     # Remove cross-split prompt overlaps, giving held-out tests precedence.
     priority = {'test': 0, 'dev': 1, 'reward': 2}
     unique = {}

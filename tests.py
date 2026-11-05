@@ -38,6 +38,17 @@ class EditTests(unittest.TestCase):
                 raise RuntimeError('Simulated evaluation failure')
         self.assertTrue(torch.equal(tensor, torch.ones_like(tensor)))
 
+    def test_jsonl_unicode_line_separator(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from train import select_rows
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'examples.jsonl'
+            path.write_text(''.join(json.dumps(dict(suite=s, prompt='a\u2028b'), ensure_ascii=False)
+                                    + '\n' for s in ('gsm8k', 'math', 'mmlu', 'ifeval')))
+            self.assertEqual(len(select_rows(path, 1, 42)), 4)
+
     def test_grpo_changes_editor_and_equal_rewards_skip(self):
         import torch
         from types import SimpleNamespace

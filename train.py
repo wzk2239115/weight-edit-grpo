@@ -36,7 +36,8 @@ def receive(worker):
 
 
 def select_rows(path, limit, seed):
-    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    with path.open() as stream:
+        rows = [json.loads(line) for line in stream]
     rng = random.Random(seed)
     rng.shuffle(rows)
     selected = []

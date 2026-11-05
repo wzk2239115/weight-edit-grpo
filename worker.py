@@ -77,12 +77,17 @@ def evaluate(model, tokenizer, rows, batch_size, max_tokens, seed):
             output = model.generate(**inputs, max_new_tokens=max_tokens, do_sample=False,
                                     pad_token_id=tokenizer.pad_token_id)
         for row, ids in zip(batch, output[:, inputs.input_ids.shape[1]:]):
+            eos = (ids == tokenizer.eos_token_id).nonzero()
+            if len(eos):
+                ids = ids[:int(eos[0].item()) + 1]
             text = tokenizer.decode(ids, skip_special_tokens=False)
-            text = text.replace(tokenizer.eos_token or '<unused-eos>', '')
+            for special in tokenizer.all_special_tokens:
+                if special not in ('<think>', '</think>'):
+                    text = text.replace(special, '')
             value = score(row, text)
             suite = row['suite']
             totals.setdefault(suite, []).append(value)
-            results.append(dict(id=row['id'], suite=suite, correct=value, response=text,
+            results.append(dict(id=row['id'], suite=suite, category=row.get('category'), correct=value, response=text,
                                 tokens=len(ids), truncated=bool(ids[-1] != tokenizer.eos_token_id)))
     return dict(scores={k: sum(v) / len(v) for k, v in totals.items()}, results=results)
 
