@@ -130,7 +130,7 @@ def main():
     p.add_argument('--steps', type=int, default=10)
     p.add_argument('--group', type=int, default=7)
     p.add_argument('--reads', type=int, default=4)
-    p.add_argument('--per-suite', type=int, default=128, help='0 = all rows in split')
+    p.add_argument('--per-suite', type=int, default=0, help='0 (default) = complete split; positive limits are debug only')
     p.add_argument('--batch-size', type=int, default=4)
     p.add_argument('--eval-tokens', type=int, default=2048)
     p.add_argument('--edit-tokens', type=int, default=2048)
@@ -150,6 +150,8 @@ def main():
     from peft import LoraConfig, get_peft_model
     if args.group < 2 or args.update_epochs < 1:
         p.error('group >= 2 and update-epochs >= 1 required')
+    if args.per_suite < 0:
+        p.error('per-suite must be nonnegative')
     out = Path(args.out).resolve()
     if ROOT not in out.parents:
         p.error('Outputs must be inside this repository')
@@ -201,7 +203,12 @@ def main():
         for step in range(args.steps):
             directory = out / f'step-{step:04d}'
             directory.mkdir(exist_ok=True)
-            rows = select_rows(ROOT / 'data/reward.jsonl', args.per_suite, args.seed + step)
+            # Full-set comparisons keep identical ordering/batching across groups.
+            row_seed = args.seed if args.per_suite == 0 else args.seed + step
+            rows = select_rows(ROOT / 'data/reward.jsonl', args.per_suite, row_seed)
+            print(json.dumps(dict(step=step, evaluation_questions=len(rows), counts={
+                suite: sum(r['suite'] == suite for r in rows)
+                for suite in ('gsm8k', 'math', 'mmlu', 'ifeval')})), flush=True)
             (directory / 'rows.json').write_text(json.dumps([x['id'] for x in rows]))
             for w in workers:
                 w[0].put(dict(op='prepare', rows=rows))

@@ -117,6 +117,9 @@ def serve(model_path, gpu, incoming, outgoing, options):
                 return
             try:
                 if job['op'] == 'prepare':
+                    if baseline is not None and rows == job['rows']:
+                        outgoing.put(('ok', baseline))
+                        continue
                     rows = job['rows']
                     baseline = evaluate(model, tokenizer, rows, **options)
                     outgoing.put(('ok', baseline))

@@ -53,24 +53,29 @@ fail loudly if blocked. No credentials are needed for the selected public datase
 ## Smoke run, then spend compute on evaluation
 
 First verify loading, tool output, patches, evaluation and policy gradients with
-two B replicas and 8 questions **per suite**. This is a plumbing check only.
+two B replicas and 128 questions **per suite** (or all available if fewer).
+This limited run is still a plumbing check, not evidence of an ability improvement.
 `bash smoke.sh` runs the following with batch size 2.
 
 ```bash
 .venv/bin/python train.py \
   --editor ../../Qwen3-4B-Instruct-2507 --target ../../Qwen3.6-27B \
-  --b-gpus 1,2 --group 2 --steps 1 --per-suite 8 \
-  --eval-tokens 1024 --out runs/smoke
+  --b-gpus 1,2 --group 2 --steps 1 --per-suite 128 \
+  --eval-tokens 4096 --out runs/check-128
 ```
 
 Then use all eight GPUs: A on GPU 0, seven B replicas on GPUs 1–7. A uses LoRA so
 the other cards can be spent on evaluation. Each candidate sees the same question
-batch in its group. `--per-suite 0` evaluates the entire reward split for every edit.
+batch in its group. The default `--per-suite 0` evaluates the entire reward split
+for every edit: GSM8K 5,925; MATH 6,013; MMLU-Pro 7,244; IFEval 323
+(19,505 questions per candidate with the prepared manifest). The complete-set order
+is fixed across groups, and unchanged B baselines are reused within each worker.
+Reward-set results guide training; final claims require the untouched test split.
 
 ```bash
 .venv/bin/python train.py \
   --editor ../../Qwen3-4B-Instruct-2507 --target ../../Qwen3.6-27B \
-  --group 7 --steps 10 --per-suite 128 --eval-tokens 4096 \
+  --group 7 --steps 10 --per-suite 0 --eval-tokens 4096 \
   --out runs/first
 ```
 
