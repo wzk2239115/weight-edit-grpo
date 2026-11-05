@@ -1,0 +1,13 @@
+torch>=2.6
+transformers>=5.0,<6
+peft>=0.15
+datasets>=3.5
+accelerate>=1.5
+math-verify>=0.7
+numpy
+nltk
+absl-py
+langdetect
+immutabledict
+rouge-score
+sentencepiece
