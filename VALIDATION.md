@@ -19,11 +19,20 @@ GPU follow-up through JupyterLab:
 - Setup completed, six tests passed in the GPU container, four suites downloaded
   through the configured proxy/HF mirror. Split checksums matched the local files.
 - `smoke.sh` launched: two 27B B replicas and the 4B A loaded successfully.
-- B reported missing `causal-conv1d` and `flash-linear-attention`; generation uses
-  the slower reference implementation. Large-scale throughput is not yet validated.
-- The group was still running when UI control returned `noWindowsAvailable`.
-  Its outcome and any actual A update remain unconfirmed.
+- The initial small smoke completed, but equal negative group rewards skipped the
+  A update. This established execution only, not learning or capability gains.
+- Inference dependencies subsequently installed inside the project `.venv`:
+  causal-conv1d 1.7.0, fla-core 0.6.0, flash-linear-attention 0.6.0. The existing
+  NVIDIA PyTorch 2.7.0a0 and Triton 3.2.0 were retained. FLA warns that Triton 3.3+
+  is recommended; compatibility beyond the checked workloads is unverified.
+- BF16 CUDA convolution matched the PyTorch reference within the check's
+  tolerance; chunk and recurrent GDN outputs/final states agreed. Transformers
+  selected the external optimized implementations for all four kernel functions.
+- Real B generated twice, including cached decoding, and all four optimized
+  functions were called. The first 32-token generation took 43.68s including
+  compilation; the second took 1.76s (18.14 tokens/s). This short, single-prompt
+  check is not full benchmark throughput or a measured speedup against fallback.
 
-Still required: read the completed smoke result, measure latency/memory, address
-the B inference bottleneck, and run a real editor training group with informative
-rewards. No capability improvement established.
+Still required: measure full evaluation throughput and run the revised multi-round
+editor training with substantial evaluation and informative group rewards.
+No capability improvement established.
