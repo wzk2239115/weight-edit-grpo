@@ -1,6 +1,7 @@
 """Print compact evidence from a completed group, without dumping generations."""
 import argparse
 import json
+import hashlib
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
@@ -13,7 +14,9 @@ for record in json.loads((directory / 'candidates.json').read_text()):
     summary = {k: record.get(k) for k in ('candidate', 'error', 'changed', 'base', 'edited',
                                         'reward', 'target_gain', 'drops', 'passed')}
     summary['location'] = {k: action.get(k) for k in ('tensor', 'row', 'col')}
-    summary['shape'] = [len(action.get('values', [])), len(action.get('values', [[]])[0])]
+    values = action.get('values') or []
+    summary['shape'] = [len(values), len(values[0]) if values else 0]
+    summary['patch_hash'] = hashlib.sha256(json.dumps(action, sort_keys=True).encode()).hexdigest()[:16]
     summary['read_requests'] = sum('"read"' in x['content'] for x in record.get('messages', [])
                                    if x['role'] == 'assistant')
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary))
