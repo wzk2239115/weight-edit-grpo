@@ -2,6 +2,7 @@
 import json
 import re
 import traceback
+import time
 from contextlib import contextmanager
 
 from edits import rectangle
@@ -62,6 +63,9 @@ def evaluate(model, tokenizer, rows, batch_size, max_tokens, seed):
     import torch
     torch.manual_seed(seed)
     totals, results = {}, []
+    started = time.monotonic()
+    print(json.dumps(dict(event='evaluation_start', device=str(model.device),
+                          questions=len(rows), batch_size=batch_size)), flush=True)
     for start in range(0, len(rows), batch_size):
         batch = rows[start:start + batch_size]
         prompts = []
@@ -89,6 +93,10 @@ def evaluate(model, tokenizer, rows, batch_size, max_tokens, seed):
             totals.setdefault(suite, []).append(value)
             results.append(dict(id=row['id'], suite=suite, category=row.get('category'), correct=value, response=text,
                                 tokens=len(ids), truncated=bool(ids[-1] != tokenizer.eos_token_id)))
+        if start == 0 or (start // batch_size + 1) % 16 == 0 or len(results) == len(rows):
+            print(json.dumps(dict(event='evaluation_progress', device=str(model.device),
+                                  done=len(results), total=len(rows),
+                                  elapsed_seconds=round(time.monotonic() - started, 1))), flush=True)
     return dict(scores={k: sum(v) / len(v) for k, v in totals.items()}, results=results)
 
 
