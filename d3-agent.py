@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent
 def api(messages):
     key = os.environ.get('DEEPSEEK_API_KEY')
     base = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.360.cn/v1')
+    saved = ROOT / 'secrets/d3-api.json'
+    if not key and saved.exists():
+        settings = json.loads(saved.read_text())
+        key, base = settings['apiKey'], settings['baseURL']
     config = Path(os.environ.get('OPENCODE_CONFIG', '~/.config/opencode/opencode.json')).expanduser()
     if not key and config.exists():
         options = json.loads(config.read_text())['provider']['360-proxy']['options']
