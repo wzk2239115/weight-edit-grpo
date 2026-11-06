@@ -253,3 +253,11 @@ full evidence are explicitly marked incomplete. This audit does not establish
 capability gains or rule out benchmark overfitting; fresh-checkpoint replay and
 held-out testing are required for a research result. Do not pull or modify code
 while an audited run is active: that intentionally invalidates its file hashes.
+
+Accepted improvements are stored as sparse, versioned `accepted-diffs/NNNN.json`,
+not full modified checkpoints. Each diff pins the base model revision and parent
+version, and records tensor name, flat index, checkpoint dtype, before/after and
+delta. `best-diff.json` merges accepted changes relative to the original base,
+omitting entries restored to their original value. Replay assigns `after` in the
+recorded dtype; delta is for analysis (repeated addition can round differently).
+Rejected candidates remain in the audit history but create no accepted diff.

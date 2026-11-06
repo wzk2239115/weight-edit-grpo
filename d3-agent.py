@@ -182,6 +182,25 @@ class Experiment:
                     key = (name, index)
                     self.original.setdefault(key, old.cpu())
                     self.edits[key] = float(v.item())
+                # Version only accepted sparse changes. Never serialize a full model.
+                version = 1 + sum(x['accepted'] for x in self.history)
+                revision_path = ROOT / 'models/d3-ultra/revision.txt'
+                revision = revision_path.read_text().strip() if revision_path.exists() else 'test-fixture'
+                diff = dict(format='weight-diff-v1', base_model='vllm-sr/d3-ultra',
+                    base_revision=revision, version=version, parent_version=version-1,
+                    metrics=metrics, changes=[dict(name=n, index=i, dtype=str(self.params[n].dtype),
+                        before=float(old.item()), after=float(v.item()), delta=float(v.item())-float(old.item()))
+                        for n,i,old,v in pending if not self.torch.equal(old,v)])
+                folder = self.run / 'accepted-diffs'
+                folder.mkdir(exist_ok=True)
+                (folder / f'{version:04d}.json').write_text(json.dumps(diff))
+                merged = dict(format='weight-diff-v1', base_model='vllm-sr/d3-ultra',
+                    base_revision=revision, version=version, parent_version=0, metrics=metrics,
+                    changes=[dict(name=n, index=i, dtype=str(self.params[n].dtype),
+                        before=float(self.original[(n,i)].item()), after=value,
+                        delta=value-float(self.original[(n,i)].item()))
+                        for (n,i),value in self.edits.items() if value != self.original[(n,i)].item()])
+                (self.run / 'best-diff.json').write_text(json.dumps(merged))
             record = dict(event='candidate', round=len(self.history)+1, reason=reason,
                           assignments=changes, actual_changed=changed, accepted=accepted, metrics=metrics,
                           realized=[dict(name=n, index=i, before=float(old.item()), after=float(v.item()))

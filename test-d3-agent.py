@@ -23,9 +23,14 @@ with tempfile.TemporaryDirectory() as directory:
     result = ex.candidate([dict(name='layer.weight', index=1, value=3.)], 'test accepted')
     assert result['accepted'] and result['actual_changed'] == 1
     assert ex.params['layer.weight'][0,1] == 3
+    import json
+    diff = json.loads((ex.run / 'accepted-diffs/0001.json').read_text())
+    assert diff['changes'][0]['before'] == 2. and diff['changes'][0]['after'] == 3.
+    assert diff['changes'][0]['delta'] == 1. and diff['parent_version'] == 0
     ex.evaluate = lambda rows: dict(accuracy={'a':.9,'b':.4}, macro_accuracy=.65, macro_nll=.8)
     assert not ex.candidate([dict(name='layer.weight', index=1, value=4.)], 'regression')['accepted']
     assert ex.params['layer.weight'][0,1] == 3
+    assert len(list((ex.run/'accepted-diffs').glob('*.json'))) == 1
     def fail(rows):
         raise RuntimeError('simulated scoring failure')
     ex.evaluate = fail
