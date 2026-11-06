@@ -38,9 +38,10 @@ def api(messages):
             if attempt == 3:
                 raise RuntimeError(f'API HTTP {exc.code} after four attempts') from None
             time.sleep(2 ** attempt)
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError) as exc:
             if attempt == 3:
-                raise RuntimeError('API request failed after four attempts (credentials/body omitted)') from None
+                detail = str(getattr(exc, 'reason', type(exc).__name__)).replace(key, '[redacted]')
+                raise RuntimeError('API transport failed: ' + detail) from None
             time.sleep(2 ** attempt)
 
 
