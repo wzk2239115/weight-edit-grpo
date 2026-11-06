@@ -32,6 +32,12 @@ def api(messages):
         try:
             with urllib.request.urlopen(req, timeout=600) as response:
                 return json.load(response)['choices'][0]['message']['content']
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 and exc.code != 429:
+                raise RuntimeError(f'API HTTP {exc.code} (credentials/body omitted)') from None
+            if attempt == 3:
+                raise RuntimeError(f'API HTTP {exc.code} after four attempts') from None
+            time.sleep(2 ** attempt)
         except (urllib.error.URLError, TimeoutError):
             if attempt == 3:
                 raise RuntimeError('API request failed after four attempts (credentials/body omitted)') from None

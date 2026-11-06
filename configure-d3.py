@@ -2,10 +2,13 @@
 import getpass
 import json
 import os
+import sys
 from pathlib import Path
 root = Path(__file__).resolve().parent
 os.umask(0o077)
 key = getpass.getpass('360 API key (hidden): ').strip()
+if '--hex' in sys.argv:
+    key = bytes.fromhex(key).decode()
 if not key:
     raise SystemExit('No key saved')
 folder = root / 'secrets'
