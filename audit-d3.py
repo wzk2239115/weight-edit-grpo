@@ -1,6 +1,5 @@
 """Offline trajectory audit. This checks recorded evidence, not held-out performance."""
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -17,7 +16,6 @@ for path, expected in hashes.items():
         raise SystemExit('FAIL: boundary file differs: '+path)
 catalog = json.loads((run/'tensor-catalog.json').read_text())
 inspected, output, candidates = {}, None, []
-programs = iter(sorted(run.glob('round-*-turn-*.py'), key=lambda p: tuple(int(x) for x in (p.stem.split('-')[1],p.stem.split('-')[3]))))
 last_code = None
 for r in records:
     if r['event']=='agent_response':
@@ -25,11 +23,14 @@ for r in records:
             obj=json.loads(r['content'])
             if obj.get('tool')=='code':
                 last_code=obj['code']
+                source_path=run / f"round-{r['round']}-turn-{r['turn']}.py"
         except (ValueError,KeyError,TypeError):
             pass
     if r['event']=='tool_result' and isinstance(r['result'],dict) and 'values' in r['result']:
         inspected[r['result']['name']]=r['result']
     if r['event']=='program_output':
+        if not source_path.exists() or source_path.read_text()!=last_code:
+            raise SystemExit('FAIL: saved program source differs from agent response')
         if last_code is None or hashlib.sha256(last_code.encode()).hexdigest()!=r['source_sha256']:
             raise SystemExit('FAIL: source hash does not match agent response')
         if NumericalProgram(inspected,catalog).run(last_code)!=r['changes']:
