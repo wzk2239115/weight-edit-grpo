@@ -71,7 +71,7 @@ def run_program(code, tensors, catalog):
 
 
 class Experiment:
-    def __init__(self, device, per_suite, run):
+    def __init__(self, device, per_suite, run, devices=None):
         import torch
         import sys
         sys.path.insert(0, str(ROOT / 'models/d3-ultra'))
@@ -87,6 +87,12 @@ class Experiment:
         self.edits = {}
         self.history = []
         self.rows = self.load('reward', per_suite)
+        self.replicas = None
+        if devices and len(devices) > 1:
+            from d3_parallel import Replicas
+            self.replicas = Replicas(devices[1:], ROOT)
+            import atexit
+            atexit.register(self.replicas.close)
         self.baseline = self.evaluate(self.rows)
         self.best = self.baseline
         self.log(dict(event='baseline', metrics=self.baseline))
@@ -111,25 +117,76 @@ class Experiment:
         print(json.dumps(record), flush=True)
 
     def evaluate(self, rows):
+        from d3_parallel import score_rows, merge_scores
+        if getattr(self, 'replicas', None) is not None:
+            keys = set(self.edits) | set(getattr(self, 'active_coordinates', []))
+            changes = [dict(name=n, index=i, value=float(self.params[n].view(-1)[i].item()))
+                       for n,i in sorted(keys)]
+            return self.replicas.evaluate(self.model, rows, changes)
         start = time.monotonic()
-        totals, correct, nll = {}, {}, {}
-        for i, row in enumerate(rows):
-            # Separate request per state: no cross-example context or stale embedding cache.
-            q = {'type': 'choice', 'instructions': row['question'],
-                 'criteria': {str(k): v for k, v in enumerate(row['options'])}}
-            answer = self.model.system_one(state=row['state'], questions={'q': q})['answers']['q']
-            if 'error' in answer:
-                raise RuntimeError('Benchmark error: ' + json.dumps(answer))
-            s = row['suite']
-            totals[s] = totals.get(s, 0) + 1
-            correct[s] = correct.get(s, 0) + (str(answer['choice']) == str(row['answer']))
-            nll[s] = nll.get(s, 0) - math.log(max(1e-12, answer['probabilities'][str(row['answer'])]))
-            if (i + 1) % 50 == 0:
-                print(json.dumps(dict(event='eval_progress', done=i+1, total=len(rows))), flush=True)
-        acc = {s: correct[s] / totals[s] for s in totals}
-        losses = {s: nll[s] / totals[s] for s in totals}
-        return dict(n=totals, accuracy=acc, macro_accuracy=sum(acc.values()) / len(acc),
-                    nll=losses, macro_nll=sum(losses.values()) / len(losses), seconds=time.monotonic()-start)
+        return merge_scores([score_rows(self.model, rows)], time.monotonic()-start)
+
+    def verify_parallel(self):
+        """Compare identical real inputs and a temporary literal edit on one vs eight GPUs."""
+        from d3_parallel import score_rows, merge_scores
+        rows = self.load('reward', 2)
+        def compare():
+            single = merge_scores([score_rows(self.model, rows)], 0)
+            parallel = self.evaluate(rows)
+            if single['n'] != parallel['n'] or single['accuracy'] != parallel['accuracy']:
+                raise RuntimeError('Single/multi-GPU accuracy differs')
+            if any(abs(single['nll'][s]-parallel['nll'][s]) > 1e-5 for s in single['nll']):
+                raise RuntimeError('Single/multi-GPU probabilities differ')
+        compare()
+        name = next(n for n,p in self.params.items() if p.ndim == 2 and 'mlp' in n and not n.startswith('visual.'))
+        flat = self.params[name].view(-1)
+        saved = flat[0].clone()
+        try:
+            with self.torch.no_grad():
+                flat[0] = saved + .03125
+            self.active_coordinates = [(name, 0)]
+            compare()
+        finally:
+            with self.torch.no_grad():
+                flat[0] = saved
+            self.active_coordinates = []
+        compare()
+        self.log(dict(event='parallel_check', status='PASS', devices=1+len(self.replicas.connections),
+            note='Same inputs and probabilities before edit, after literal edit, and after rollback; zero persistent probe edits'))
+
+    def resume(self, parent):
+        """Fork an interrupted run, replaying only completed, audited candidate rounds."""
+        records = [json.loads(x) for x in (parent/'history.jsonl').open()]
+        completed = {r['round'] for r in records if r['event']=='round_complete'}
+        audited = {r['round'] for r in records if r['event']=='round_audit' and r['result']['status']=='PASS'}
+        prior = [r for r in records if r['event']=='candidate' and r['round'] in completed & audited]
+        if [r['round'] for r in prior] != list(range(1, len(prior)+1)):
+            raise RuntimeError('Non-contiguous audited parent history')
+        config = json.loads((parent/'config.json').read_text())
+        if config['per_suite'] != len(self.rows)//4:
+            raise RuntimeError('Resume requires the same question count')
+        if json.loads((parent/'reward-ids.json').read_text()) != [r['id'] for r in self.rows]:
+            raise RuntimeError('Resume question IDs changed')
+        with self.torch.no_grad():
+            for record in prior:
+                if not record['accepted']:
+                    continue
+                for c in record['realized']:
+                    key = (c['name'], c['index'])
+                    flat = self.params[key[0]].view(-1)
+                    if float(flat[key[1]].item()) != c['before']:
+                        raise RuntimeError('Parent diff does not match checkpoint')
+                    self.original.setdefault(key, flat[key[1]].clone().cpu())
+                    flat[key[1]] = c['after']
+                    if float(flat[key[1]].item()) != c['after']:
+                        raise RuntimeError('Resume dtype mismatch')
+                    self.edits[key] = c['after']
+        self.history = prior
+        if self.edits:
+            self.best = self.evaluate(self.rows)
+        self.log(dict(event='resume', parent=str(parent.relative_to(ROOT)),
+            parent_history_sha256=hashlib.sha256((parent/'history.jsonl').read_bytes()).hexdigest(),
+            completed_rounds=len(prior), persistent_assignments=len(self.edits), best=self.best))
 
     def inspect(self, name, start=0, count=32):
         p = self.params[name]
@@ -167,6 +224,7 @@ class Experiment:
             with self.torch.no_grad():
                 for name, index, old, v in pending:
                     self.params[name].view(-1)[index] = v
+            self.active_coordinates = [(n,i) for n,i,_,_ in pending]
             metrics = self.evaluate(self.rows)
             if hasattr(self, 'boundary') and boundary_hashes() != self.boundary:
                 raise RuntimeError('Framework/data boundary changed during evaluation')
@@ -211,6 +269,7 @@ class Experiment:
                 dict(name=n, index=i, value=v) for (n, i), v in self.edits.items()]))
             return record
         finally:
+            self.active_coordinates = []
             if not accepted:
                 with self.torch.no_grad():
                     for name, index, old, _ in pending:
@@ -248,6 +307,9 @@ def main():
     parser.add_argument('--rounds', type=int, default=200)
     parser.add_argument('--per-suite', type=int, default=200)
     parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--devices', help='Comma-separated resident GPU devices, controller first')
+    parser.add_argument('--resume-from', type=Path)
+    parser.add_argument('--verify-parallel', action='store_true')
     args = parser.parse_args()
     if args.direct:
         os.environ['DEEPSEEK_DIRECT'] = '1'
@@ -258,12 +320,24 @@ def main():
         args.rounds, args.per_suite = 1, 2
     run = ROOT / 'runs' / time.strftime(('d3-smoke-' if args.smoke else 'd3-search-') + '%Y%m%d-%H%M%S')
     run.mkdir(parents=True, exist_ok=False)
-    ex = Experiment(args.device, args.per_suite, run)
+    devices = args.devices.split(',') if args.devices else [args.device]
+    if len(set(devices)) != len(devices):
+        raise ValueError('GPU devices must be unique')
+    ex = Experiment(devices[0], args.per_suite, run, devices)
+    if args.verify_parallel:
+        if ex.replicas is None:
+            raise ValueError('Parallel verification needs multiple devices')
+        ex.verify_parallel()
+    if args.resume_from:
+        parent = args.resume_from.resolve()
+        if not parent.is_relative_to(ROOT / 'runs'):
+            raise ValueError('Resume path must be inside this repository runs directory')
+        ex.resume(parent)
     catalog = [{'name': n, 'shape': list(p.shape), 'dtype': str(p.dtype)} for n,p in ex.params.items()]
     (run / 'tensor-catalog.json').write_text(json.dumps(catalog))
     (run / 'reward-ids.json').write_text(json.dumps([r['id'] for r in ex.rows]))
-    (run / 'config.json').write_text(json.dumps(vars(args)))
-    for round_id in range(args.rounds):
+    (run / 'config.json').write_text(json.dumps(vars(args), default=str))
+    for round_id in range(len(ex.history), args.rounds):
         # Compact memory keeps every trial's metrics plus recent full patches, without ever exposing test.
         memory = [dict(round=x['round'], reason=x['reason'], accepted=x['accepted'], metrics=x['metrics'])
                   for x in ex.history]

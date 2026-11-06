@@ -50,3 +50,29 @@ with tempfile.TemporaryDirectory() as directory:
             raise AssertionError('invalid/no-op patch accepted')
     assert ex.inspect('layer.weight', 0, 2)['values'] == [1.,3.]
 print('PASS: real BF16 assignments, no-op rejection, regression rollback, exception rollback')
+
+# Resuming replays accepted audited rounds only, without inheriting unfinished edits.
+with tempfile.TemporaryDirectory() as directory:
+    import json
+    parent = Path(directory)/'parent'
+    parent.mkdir()
+    ex = make(directory)
+    ex.rows = [dict(id=str(i)) for i in range(8)]
+    (parent/'config.json').write_text(json.dumps(dict(per_suite=2)))
+    (parent/'reward-ids.json').write_text(json.dumps([r['id'] for r in ex.rows]))
+    record = dict(event='candidate', round=1, accepted=True, reason='prior',
+                  realized=[dict(name='layer.weight', index=1, before=2., after=3.)])
+    records = [record, dict(event='round_audit',round=1,result=dict(status='PASS')),
+               dict(event='round_complete',round=1),
+               dict(record,round=2,realized=[dict(name='layer.weight',index=1,before=3.,after=4.)])]
+    (parent/'history.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
+    old_root = a.ROOT
+    a.ROOT = Path(directory)
+    ex.evaluate = lambda rows: ex.baseline
+    try:
+        ex.resume(parent)
+    finally:
+        a.ROOT = old_root
+    assert ex.params['layer.weight'][0,1].item()==3.
+    assert len(ex.history)==1 and ex.original[('layer.weight',1)].item()==2.
+print('PASS: audited resume preserves accepted edits and excludes unfinished round')

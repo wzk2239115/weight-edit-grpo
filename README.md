@@ -261,3 +261,16 @@ delta. `best-diff.json` merges accepted changes relative to the original base,
 omitting entries restored to their original value. Replay assigns `after` in the
 recorded dtype; delta is for analysis (repeated addition can round differently).
 Rejected candidates remain in the audit history but create no accepted diff.
+
+The D3 launcher uses eight resident replicas (`--devices cuda:0,...,cuda:7`). Each
+800-question evaluation sends the same cumulative numeric edits to all replicas
+and scores 100 distinct questions on each GPU. Counts and loss sums are reduced
+before computing per-suite and macro scores; any worker error aborts the evaluation.
+Worker edits are restored after every request. Startup checks compare single-GPU
+and sharded outputs before/after a temporary literal edit and rollback.
+
+To continue an interrupted search without overwriting its evidence, use
+`bash launch-d3.sh --resume-from runs/d3-search-YYYYMMDD-HHMMSS`. A new run records
+the parent history hash, replays accepted edits from completed audited rounds,
+remeasures the baseline/current best and retains previous feedback. `--rounds`
+is the total budget including inherited rounds. The final test split stays sealed.
