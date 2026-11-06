@@ -65,7 +65,8 @@ class Experiment:
         self.log(dict(event='baseline', metrics=self.baseline))
 
     def load(self, split, per_suite=0):
-        rows = [json.loads(x) for x in (ROOT / f'data/d3/{split}.jsonl').read_text().splitlines()]
+        with (ROOT / f'data/d3/{split}.jsonl').open() as stream:
+            rows = [json.loads(x) for x in stream]
         selected, counts = [], {}
         # Stable hash order; the same candidates always see exactly the same prompts.
         for row in sorted(rows, key=lambda r: r['id']):
