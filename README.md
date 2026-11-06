@@ -274,3 +274,16 @@ To continue an interrupted search without overwriting its evidence, use
 the parent history hash, replays accepted edits from completed audited rounds,
 remeasures the baseline/current best and retains previous feedback. `--rounds`
 is the total budget including inherited rounds. The final test split stays sealed.
+
+Claude Code is now the default agent backend. Install the official native CLI with
+`source remote-env.sh` then `python setup-claude.py` (all installation/cache files
+stay in tmp). The CLI uses the existing 360 credential through its Anthropic
+Messages endpoint and the `deepseek/deepseek-v4.1-flash` model. Claude Code owns the
+tool loop and resumed session. Native Read/Write/Edit are restricted to its scratch
+workspace by a PreToolUse hook; Bash is not exposed. Through MCP it can inspect
+current weights, retrieve arbitrary historical round diffs, and submit a JSON patch
+it authored. The independent scorer accepts only literal finite weight assignments;
+no agent-authored Python is executed by the evaluator. Historical summaries and
+current accepted changes are in context.json; notes.md and the Claude Code session
+persist across rounds. `round-N-claude.jsonl` contains the actual CLI tool trajectory.
+Use `--agent-backend legacy` only to reproduce the previous bounded numerical agent.

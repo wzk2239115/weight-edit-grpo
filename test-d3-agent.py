@@ -54,8 +54,8 @@ print('PASS: real BF16 assignments, no-op rejection, regression rollback, except
 # Resuming replays accepted audited rounds only, without inheriting unfinished edits.
 with tempfile.TemporaryDirectory() as directory:
     import json
-    parent = Path(directory)/'parent'
-    parent.mkdir()
+    parent = Path(directory)/'runs/parent'
+    parent.mkdir(parents=True)
     ex = make(directory)
     ex.rows = [dict(id=str(i)) for i in range(8)]
     (parent/'config.json').write_text(json.dumps(dict(per_suite=2)))
@@ -66,11 +66,29 @@ with tempfile.TemporaryDirectory() as directory:
                dict(event='round_complete',round=1),
                dict(record,round=2,realized=[dict(name='layer.weight',index=1,before=3.,after=4.)])]
     (parent/'history.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
+    record['metrics'] = ex.baseline
+    record['actual_changed'] = 1
+    records[0] = record
+    (parent/'history.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
     old_root = a.ROOT
-    a.ROOT = Path(directory)
+    a.ROOT = Path(directory).resolve()
     ex.evaluate = lambda rows: ex.baseline
     try:
         ex.resume(parent)
+        summary = ex.memory_summary()[0]
+        assert summary['changed_tensors']['layer.weight']['examples'][0]['before']==2.
+        assert summary['delta_macro_nll']==0.
+        assert ex.recall(1)['changes'][0]['after']==3.
+        assert ex.current_edit_summary()['layer.weight']['examples'][0]['current']==3.
+        child = Path(directory)/'runs/child'
+        child.mkdir()
+        link = dict(event='resume', parent='runs/parent',
+                    parent_history_sha256=a.hashlib.sha256((parent/'history.jsonl').read_bytes()).hexdigest())
+        second = dict(record, round=2, accepted=False)
+        (child/'history.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in
+            [link, second, dict(event='round_audit',round=2,result=dict(status='PASS')),
+             dict(event='round_complete',round=2)]))
+        assert [r['round'] for r in a.completed_history(child)]==[1,2]
     finally:
         a.ROOT = old_root
     assert ex.params['layer.weight'][0,1].item()==3.

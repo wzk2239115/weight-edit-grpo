@@ -28,6 +28,11 @@ for r in records:
             pass
     if r['event']=='tool_result' and isinstance(r['result'],dict) and 'values' in r['result']:
         inspected[r['result']['name']]=r['result']
+    if r['event']=='claude_patch':
+        source=(run/r['path']).read_text()
+        if hashlib.sha256(source.encode()).hexdigest()!=r['source_sha256'] or json.loads(source)!=r['changes']:
+            raise SystemExit('FAIL: Claude Code patch artifact differs from evaluated edits')
+        output=r['changes']
     if r['event']=='program_output':
         if not source_path.exists() or source_path.read_text()!=last_code:
             raise SystemExit('FAIL: saved program source differs from agent response')
