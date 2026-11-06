@@ -11,7 +11,7 @@ import urllib.error
 ROOT = Path(__file__).resolve().parent
 
 
-def api(messages):
+def api(messages, timeout=600):
     key = os.environ.get('DEEPSEEK_API_KEY')
     base = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.360.cn/v1')
     saved = ROOT / 'secrets/d3-api.json'
@@ -28,9 +28,10 @@ def api(messages):
                    messages=messages, max_tokens=8192, temperature=0.7)
     req = urllib.request.Request(base.rstrip('/') + '/chat/completions',
         json.dumps(payload).encode(), {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if os.environ.get('DEEPSEEK_DIRECT') == '1' else urllib.request.build_opener()
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=600) as response:
+            with opener.open(req, timeout=timeout) as response:
                 return json.load(response)['choices'][0]['message']['content']
         except urllib.error.HTTPError as exc:
             if exc.code < 500 and exc.code != 429:
@@ -184,12 +185,15 @@ You have up to 8 inspect/tool turns before each evaluated edit. Explicit values 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--api-check', action='store_true')
+    parser.add_argument('--direct', action='store_true', help='Direct API connection; keep download proxy unchanged')
     parser.add_argument('--rounds', type=int, default=200)
     parser.add_argument('--per-suite', type=int, default=200)
     parser.add_argument('--device', default='cuda:0')
     args = parser.parse_args()
+    if args.direct:
+        os.environ['DEEPSEEK_DIRECT'] = '1'
     if args.api_check:
-        print(api([dict(role='user', content='Reply with only OK.')]))
+        print(api([dict(role='user', content='Reply with only OK.')], timeout=20))
         return
     run = ROOT / 'runs' / time.strftime('d3-search-%Y%m%d-%H%M%S')
     run.mkdir(parents=True, exist_ok=False)
