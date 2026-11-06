@@ -1,4 +1,7 @@
 .venv/
+.d3-venv/
+models/
+secrets/
 __pycache__/
 .pytest_cache/
 data/
