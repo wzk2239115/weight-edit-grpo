@@ -40,7 +40,7 @@ for split, part in [('train', 'reward'), ('validation', 'dev'), ('test', 'test')
     for x in dataset('allenai/ai2_arc', 'ARC-Challenge', split=split):
         choices = x['choices']
         add('arc', part, '', x['question'], choices['text'], choices['label'].index(x['answerKey']))
-for x in dataset('cais/mmlu_pro', split='test'):
+for x in dataset('TIGER-Lab/MMLU-Pro', split='test'):
     h = int(hashlib.sha256(x['question'].strip().encode()).hexdigest()[:8], 16) % 10
     part = 'test' if h < 2 else ('dev' if h < 4 else 'reward')
     add('mmlu', part, '', x['question'], x['options'], x['answer_index'])
