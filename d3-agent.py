@@ -214,10 +214,13 @@ def main():
                        history=memory, recent=ex.history[-3:], tensors=catalog)
         messages = [dict(role='system', content=SYSTEM), dict(role='user', content=json.dumps(context))]
         for turn in range(9):
+            ex.log(dict(event='agent_request', round=round_id+1, turn=turn+1))
             response = api(messages)
             messages.append(dict(role='assistant', content=response))
             try:
                 obj = json.loads(response)
+                ex.log(dict(event='agent_action', round=round_id+1, turn=turn+1,
+                            tool=obj.get('tool'), tensor=obj.get('name')))
                 if obj['tool'] == 'inspect' and turn < 8:
                     result = ex.inspect(obj['name'], obj.get('start',0), obj.get('count',32))
                 elif obj['tool'] == 'edit':
