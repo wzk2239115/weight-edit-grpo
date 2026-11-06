@@ -1,4 +1,5 @@
 """Pinned decision checkpoint + public choice tasks; no private SR benchmarks."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -11,9 +12,13 @@ destination.mkdir(parents=True, exist_ok=True)
 pin = destination / 'revision.txt'
 revision = pin.read_text().strip() if pin.exists() else HfApi().model_info('vllm-sr/d3-ultra').sha
 pin.write_text(revision)
-print('Downloading d3-ultra revision', revision, flush=True)
-snapshot_download('vllm-sr/d3-ultra', revision=revision, local_dir=destination, max_workers=4,
-                  ignore_patterns=['assets/*', '.eval_results/*'])
+parser = argparse.ArgumentParser()
+parser.add_argument('--data-only', action='store_true')
+args = parser.parse_args()
+if not args.data_only:
+    print('Downloading d3-ultra revision', revision, flush=True)
+    snapshot_download('vllm-sr/d3-ultra', revision=revision, local_dir=destination, max_workers=4,
+                      ignore_patterns=['assets/*', '.eval_results/*'])
 
 manifest_path = root / 'data/d3/manifest.json'
 dataset_pins = json.loads(manifest_path.read_text())['datasets'] if manifest_path.exists() else {}
