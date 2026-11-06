@@ -15,7 +15,8 @@ print('Downloading d3-ultra revision', revision, flush=True)
 snapshot_download('vllm-sr/d3-ultra', revision=revision, local_dir=destination, max_workers=4,
                   ignore_patterns=['assets/*', '.eval_results/*'])
 
-dataset_pins = {}
+manifest_path = root / 'data/d3/manifest.json'
+dataset_pins = json.loads(manifest_path.read_text())['datasets'] if manifest_path.exists() else {}
 def dataset(repo, config=None, split=None):
     if repo not in dataset_pins:
         dataset_pins[repo] = HfApi().dataset_info(repo).sha
