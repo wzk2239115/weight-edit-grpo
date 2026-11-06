@@ -187,6 +187,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--api-check', action='store_true')
     parser.add_argument('--direct', action='store_true', help='Direct API connection; keep download proxy unchanged')
+    parser.add_argument('--smoke', action='store_true', help='One edit, two questions/suite, no dev; integration only')
     parser.add_argument('--rounds', type=int, default=200)
     parser.add_argument('--per-suite', type=int, default=200)
     parser.add_argument('--device', default='cuda:0')
@@ -196,7 +197,9 @@ def main():
     if args.api_check:
         print(api([dict(role='user', content='Reply with only OK.')], timeout=20))
         return
-    run = ROOT / 'runs' / time.strftime('d3-search-%Y%m%d-%H%M%S')
+    if args.smoke:
+        args.rounds, args.per_suite = 1, 2
+    run = ROOT / 'runs' / time.strftime(('d3-smoke-' if args.smoke else 'd3-search-') + '%Y%m%d-%H%M%S')
     run.mkdir(parents=True, exist_ok=False)
     ex = Experiment(args.device, args.per_suite, run)
     catalog = [{'name': n, 'shape': list(p.shape), 'dtype': str(p.dtype)} for n,p in ex.params.items()]
@@ -228,7 +231,11 @@ def main():
         else:
             raise RuntimeError('Agent exhausted tool turns without a valid edit')
     # Dev is evaluated once after the fixed search budget; test stays sealed in this command.
-    ex.log(dict(event='final_dev', metrics=ex.evaluate(ex.load('dev'))))
+    if args.smoke:
+        ex.log(dict(event='integration_complete', persistent_assignments=len(ex.edits),
+                    note='Eight-question smoke check only; no capability improvement established'))
+    else:
+        ex.log(dict(event='final_dev', metrics=ex.evaluate(ex.load('dev'))))
 
 
 if __name__ == '__main__':

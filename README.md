@@ -214,3 +214,20 @@ Outputs stay in `runs/d3-search-*`: original baseline, actual edit counts,
 accepted/rejected trials, tensor catalog, question IDs and `best-patch.json`.
 The source checkpoint is never overwritten. This is a specialized weight tool
 agent, with no shell access to alter the runtime or scorer.
+
+GPU setup verified on 2026-11-06: 52.2 GB checkpoint downloaded, all four public
+benchmark pools prepared, real checkpoint load and eight-question integration
+inference passed. The old GRPO training tree was stopped; its logs were retained.
+In this company network, the API must connect directly (`--direct`) while HF
+continues through the download proxy. Hidden credential setup is available via
+`python3 configure-d3.py`; `secrets/d3-api.json` stays outside Git.
+
+Run `bash accelerate-d3.sh` to install the convolution kernel in the separate
+D3 environment. Check the whole API/edit/evaluate loop with:
+
+```bash
+.d3-venv/bin/python -u d3-agent.py --direct --smoke
+```
+
+This smoke mode makes one proposal on eight questions and skips dev. It verifies
+integration only. The research run remains `--direct --rounds 200 --per-suite 200`.
