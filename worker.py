@@ -76,7 +76,16 @@ def evaluate(model, tokenizer, rows, batch_size, max_tokens, seed):
             prompts.append(tokenizer.apply_chat_template(
                 [dict(role='user', content=row['prompt'] + suffix)], tokenize=False,
                 add_generation_prompt=True))
-        inputs = tokenizer(prompts, return_tensors='pt', padding=True).to(model.device)
+        inputs = tokenizer(prompts, return_tensors='pt', padding=True)
+        # Fixed prompt-only rule: baseline and edits use the same subdivisions.
+        # Large batches help short questions; long contexts need smaller batches.
+        if len(batch) > 1 and inputs.input_ids.numel() > 8192:
+            smaller = evaluate(model, tokenizer, batch, max(1, batch_size // 2), max_tokens, seed)
+            results.extend(smaller['results'])
+            for result in smaller['results']:
+                totals.setdefault(result['suite'], []).append(result['correct'])
+            continue
+        inputs = inputs.to(model.device)
         with torch.inference_mode():
             output = model.generate(**inputs, max_new_tokens=max_tokens, do_sample=False,
                                     pad_token_id=tokenizer.pad_token_id)
