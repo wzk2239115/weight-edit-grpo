@@ -175,3 +175,42 @@ Likewise finite suites cannot prove that *all* other capabilities are unchanged.
 
 Inspired by [Weight-Space Programming](https://rikiyat.github.io/blog/weight-space-programming/)
 and its [released experiment logs](https://github.com/RikiyaT/lm_understand-logs).
+
+## D3 weight search (API agent)
+
+This separate experiment keeps the decision model and evaluator fixed. DeepSeek
+inspects named tensors in multiple turns and emits explicit scalar assignments;
+only those assignments can change the resident checkpoint. Rejected candidates
+are restored. Accepted candidates accumulate from the best checkpoint, with
+per-suite regression checks. BF16 no-op assignments are rejected. Accuracy and
+NLL gains are logged separately; completing 200 trials does not imply improvement.
+
+On the GPU, all writes remain under this clone within `wangzekai/tmp`:
+
+```bash
+source remote-env.sh
+bash setup-d3.sh
+# Supply the key without recording it in shell history or displaying it:
+read -r -s -p '360 API key: ' DEEPSEEK_API_KEY; echo
+export DEEPSEEK_API_KEY
+.d3-venv/bin/python d3-agent.py --api-check
+.d3-venv/bin/python -u d3-agent.py --rounds 200 --per-suite 200
+```
+
+Defaults: `https://api.360.cn/v1`, `deepseek/deepseek-v4.1-flash`.
+Override with `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL`. On the Mac, the API client
+can read the existing `360-proxy` provider in `~/.config/opencode/opencode.json`.
+No key is included in code, logs or Git.
+
+Public alternatives to the private SR benchmarks: ARC-Challenge, MMLU-Pro,
+HellaSwag and BoolQ, pinned to dataset revisions and deduplicated across splits.
+Default search uses a fixed 800 questions (200 per suite); dev is evaluated only
+after the search budget. `data/d3/test.jsonl` remains held out and is never sent
+to the agent. These tests measure public choice-task transfer, not reproduction
+of the model card's private SR score. Full pools, split hashes and revisions are
+stored in `data/d3/manifest.json`.
+
+Outputs stay in `runs/d3-search-*`: original baseline, actual edit counts,
+accepted/rejected trials, tensor catalog, question IDs and `best-patch.json`.
+The source checkpoint is never overwritten. This is a specialized weight tool
+agent, with no shell access to alter the runtime or scorer.
