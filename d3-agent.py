@@ -28,7 +28,7 @@ def api(messages, timeout=600):
     if not key:
         raise RuntimeError('Set DEEPSEEK_API_KEY or OPENCODE_CONFIG; credentials are never logged.')
     payload = dict(model=os.environ.get('DEEPSEEK_MODEL', 'deepseek/deepseek-v4.1-flash'),
-                   messages=messages, max_tokens=8192, temperature=0.7)
+                   messages=messages, max_tokens=16384, temperature=0.7)
     req = urllib.request.Request(base.rstrip('/') + '/chat/completions',
         json.dumps(payload).encode(), {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if os.environ.get('DEEPSEEK_DIRECT') == '1' else urllib.request.build_opener()
@@ -271,7 +271,10 @@ def main():
                        history=memory, recent=ex.history[-3:], tensors=catalog)
         inspected = {}
         messages = [dict(role='system', content=SYSTEM), dict(role='user', content=json.dumps(context))]
-        for turn in range(9):
+        inspection_count = 0
+        for turn in range(16):
+            if inspection_count >= 8 or turn >= 14:
+                messages.append(dict(role='user', content='Inspection budget is finished. Submit tool: code now; choose concrete weight values.'))
             ex.log(dict(event='agent_request', round=round_id+1, turn=turn+1))
             response = api(messages)
             ex.log(dict(event='agent_response', round=round_id+1, turn=turn+1, content=response))
@@ -280,7 +283,8 @@ def main():
                 obj = json.loads(response)
                 ex.log(dict(event='agent_action', round=round_id+1, turn=turn+1,
                             tool=obj.get('tool'), tensor=obj.get('name')))
-                if obj['tool'] == 'inspect' and turn < 8:
+                if obj['tool'] == 'inspect' and inspection_count < 8 and turn < 14:
+                    inspection_count += 1
                     result = ex.inspect(obj['name'], obj.get('start',0), obj.get('count',32))
                     inspected[obj['name']] = result
                 elif obj['tool'] == 'code':
@@ -290,9 +294,14 @@ def main():
                     changes = run_program(source, inspected, catalog)
                     ex.log(dict(event='program_output', source_sha256=hashlib.sha256(source.encode()).hexdigest(), changes=changes))
                     result = ex.candidate(changes, obj.get('reason',''))
+                    audit = subprocess.run([sys.executable, str(ROOT / 'audit-d3.py'), str(run)],
+                        check=True, capture_output=True, text=True)
+                    ex.log(dict(event='round_audit', round=round_id+1, result=json.loads(audit.stdout)))
+                    ex.log(dict(event='round_complete', round=round_id+1, accepted=result['accepted'],
+                        actual_changed=result['actual_changed'], metrics=result['metrics']))
                     break
                 else:
-                    raise ValueError('Submit an edit now' if turn == 8 else 'Unknown tool')
+                    raise ValueError('Submit tool: code now; inspection budget exhausted')
             except (ValueError, KeyError, TypeError) as exc:
                 result = {'error': str(exc)}
             ex.log(dict(event='tool_result', round=round_id+1, turn=turn+1, result=result))
