@@ -3,6 +3,32 @@ from edits import parse_action, rectangle, reward
 
 
 class EditTests(unittest.TestCase):
+    def test_long_prompt_subdivision_keeps_every_question(self):
+        import torch
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from transformers import BatchEncoding
+        from worker import evaluate
+        batches = []
+        def generate(input_ids, **kwargs):
+            batches.append(len(input_ids))
+            return torch.cat([input_ids, torch.zeros(len(input_ids), 1, dtype=torch.long)], 1)
+        class Tokenizer:
+            eos_token_id = pad_token_id = 0
+            all_special_tokens = []
+            def apply_chat_template(self, messages, **kwargs):
+                return 'prompt'
+            def __call__(self, prompts, **kwargs):
+                return BatchEncoding(dict(input_ids=torch.ones(len(prompts), 1025, dtype=torch.long)))
+            def decode(self, ids, **kwargs):
+                return 'answer'
+        rows = [dict(id=str(i), suite='gsm8k', prompt='x') for i in range(8)]
+        with patch('worker.score', return_value=1.):
+            result = evaluate(SimpleNamespace(device='cpu', generate=generate), Tokenizer(), rows, 8, 4, 42)
+        self.assertEqual(batches, [4, 4])
+        self.assertEqual([r['id'] for r in result['results']], [r['id'] for r in rows])
+        self.assertEqual(result['scores'], {'gsm8k': 1.})
+
     def test_sharded_baseline_preserves_batches_and_merges_scores(self):
         from train import baseline_shards, merge_baselines
         rows = [dict(id=str(i), suite='math' if i < 5 else 'mmlu') for i in range(11)]
