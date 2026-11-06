@@ -231,3 +231,25 @@ D3 environment. Check the whole API/edit/evaluate loop with:
 
 This smoke mode makes one proposal on eight questions and skips dev. It verifies
 integration only. The research run remains `--direct --rounds 200 --per-suite 200`.
+
+### Coding agent boundary and trajectory audit
+
+The current agent writes bounded Python numerical programs (`tool: code`), rather
+than only a JSON list. Programs can inspect previously requested tensor slices,
+use loops/conditions/arithmetic, and emit arbitrary coordinates and scalar values.
+They run in a separate resource-limited process through an AST interpreter; agent
+source is never passed to Python exec/eval. This is a numerical coding agent,
+not OpenCode or an unrestricted terminal agent.
+
+It receives no checkpoint objects, filesystem handles, labels, or evaluation code.
+Only the trusted evaluator applies emitted assignments. Framework, runtime code,
+config and benchmark hashes are checked before/after evaluation. Runs record full
+assistant responses, tool results, program source/hash/output and realized
+before/after values after checkpoint dtype conversion. Files stay under runs/.
+
+`python audit-d3.py runs/NAME` verifies recorded boundary hashes and replays the
+numerical programs to reproduce the evaluated patches. Legacy runs without this
+full evidence are explicitly marked incomplete. This audit does not establish
+capability gains or rule out benchmark overfitting; fresh-checkpoint replay and
+held-out testing are required for a research result. Do not pull or modify code
+while an audited run is active: that intentionally invalidates its file hashes.
