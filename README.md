@@ -98,6 +98,17 @@ for every edit: GSM8K 5,925; MATH 6,013; MMLU-Pro 7,244; IFEval 323
 is fixed across groups, and unchanged B baselines are reused within each worker.
 Reward-set results guide training; final claims require the untouched test split.
 
+Baseline batches are distributed across the seven workers once, merged in original
+question order, and shared with all replicas. Original batch boundaries are retained.
+Identical reward sets reuse this baseline across steps. Waiting polls worker liveness
+every minute instead of aborting a healthy evaluation after two hours.
+
+Before raising the batch size, run `source remote-env.sh; .venv/bin/python -u throughput.py`.
+This uses reward prompts only, compares batches 4/16/32, and tests 4096 decode tokens
+at the largest batch that passed the short probe. It does not train A. Check memory
+on long prompts before selecting `WE_BATCH_SIZE=16 bash launch.sh` (or another tested
+size); `bash launch.sh` retains batch 4 until a larger batch is validated.
+
 ```bash
 .venv/bin/python train.py \
   --editor ../../Qwen3-4B-Instruct-2507 --target ../../Qwen3.6-27B \

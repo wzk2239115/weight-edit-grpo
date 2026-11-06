@@ -3,6 +3,31 @@ from edits import parse_action, rectangle, reward
 
 
 class EditTests(unittest.TestCase):
+    def test_sharded_baseline_preserves_batches_and_merges_scores(self):
+        from train import baseline_shards, merge_baselines
+        rows = [dict(id=str(i), suite='math' if i < 5 else 'mmlu') for i in range(11)]
+        shards = baseline_shards(rows, 4, 3)
+        self.assertEqual(shards, [rows[:4], rows[4:8], rows[8:]])
+        parts = [dict(results=[dict(**r, correct=int(int(r['id']) % 2 == 0)) for r in shard])
+                 for shard in shards]
+        result = merge_baselines(parts, rows)
+        self.assertEqual([r['id'] for r in result['results']], [r['id'] for r in rows])
+        self.assertAlmostEqual(result['scores']['math'], 3/5)
+        self.assertAlmostEqual(result['scores']['mmlu'], 3/6)
+        with self.assertRaises(RuntimeError):
+            merge_baselines(parts[:-1], rows)
+
+    def test_dead_worker_does_not_wait_forever(self):
+        from queue import Empty
+        from unittest.mock import Mock
+        from train import receive, WorkerFailure
+        queue, process = Mock(), Mock()
+        queue.get.side_effect = Empty
+        process.is_alive.return_value = False
+        process.exitcode = 9
+        with self.assertRaises(WorkerFailure):
+            receive((None, queue, process))
+
     def test_multiround_feedback_and_explicit_selection(self):
         import json
         import torch

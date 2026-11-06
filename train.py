@@ -5,6 +5,7 @@ import multiprocessing as mp
 from pathlib import Path
 import random
 import sys
+from queue import Empty
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / 'vendor'))
@@ -17,12 +18,40 @@ class WorkerFailure(RuntimeError):
 
 
 def receive(worker):
-    tag, data = worker[1].get(timeout=7200)
+    while True:
+        try:
+            tag, data = worker[1].get(timeout=60)
+            break
+        except Empty:
+            if len(worker) > 2 and not worker[2].is_alive():
+                raise WorkerFailure(f'B worker exited with code {worker[2].exitcode}')
+            print(json.dumps(dict(event='waiting_for_worker', pid=worker[2].pid
+                                 if len(worker) > 2 else None)), flush=True)
     if tag == 'fatal':
         raise WorkerFailure(data)
     if tag not in ('ok', 'ready'):
         raise RuntimeError(data)
     return data
+
+
+def baseline_shards(rows, batch_size, count):
+    # Keep original batch boundaries, so sharding does not change padding peers.
+    shards = [[] for _ in range(count)]
+    for i, start in enumerate(range(0, len(rows), batch_size)):
+        shards[i % count].extend(rows[start:start + batch_size])
+    return shards
+
+
+def merge_baselines(parts, rows):
+    results = [r for part in parts for r in part['results']]
+    by_id = {r['id']: r for r in results}
+    if len(by_id) != len(rows) or len(results) != len(rows):
+        raise RuntimeError('Baseline shards have missing or duplicate results')
+    results = [by_id[row['id']] for row in rows]
+    suites = {r['suite'] for r in results}
+    scores = {suite: sum(r['correct'] for r in results if r['suite'] == suite) /
+              sum(r['suite'] == suite for r in results) for suite in suites}
+    return dict(scores=scores, results=results)
 
 
 def select_rows(path, limit, seed):
@@ -226,7 +255,7 @@ def main():
             proc = ctx.Process(target=serve, args=(args.target, gpu, qin, qout,
                 dict(batch_size=args.batch_size, max_tokens=args.eval_tokens, seed=args.seed)))
             proc.start()
-            workers.append((qin, qout))
+            workers.append((qin, qout, proc))
             processes.append(proc)
         catalogs = [receive(w) for w in workers]
         if any(c != catalogs[0] for c in catalogs):
@@ -255,6 +284,7 @@ def main():
         model.config.use_cache = False
         model.eval()  # Disable dropout; gradients still flow through LoRA during updates.
         optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr)
+        shared_baseline, baseline_ids = None, None
         for step in range(args.steps):
             directory = out / f'step-{step:04d}'
             directory.mkdir(exist_ok=True)
@@ -265,8 +295,16 @@ def main():
                 suite: sum(r['suite'] == suite for r in rows)
                 for suite in ('gsm8k', 'math', 'mmlu', 'ifeval')})), flush=True)
             (directory / 'rows.json').write_text(json.dumps([x['id'] for x in rows]))
+            ids = [row['id'] for row in rows]
+            if shared_baseline is None or baseline_ids != ids:
+                shards = baseline_shards(rows, args.batch_size, len(workers))
+                for w, shard in zip(workers, shards):
+                    w[0].put(dict(op='prepare', rows=shard))
+                parts = [receive(w) for w in workers]
+                shared_baseline = merge_baselines(parts, rows)
+                baseline_ids = ids
             for w in workers:
-                w[0].put(dict(op='prepare', rows=rows))
+                w[0].put(dict(op='set_baseline', rows=rows, baseline=shared_baseline))
             baselines = [receive(w) for w in workers]
             (directory / 'baseline.json').write_text(json.dumps(baselines[0]))
             # Independent replicas should yield identical deterministic baseline scores.
