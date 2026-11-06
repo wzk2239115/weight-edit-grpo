@@ -9,7 +9,7 @@ spec.loader.exec_module(a)
 run = a.ROOT / 'runs' / time.strftime('d3-check-%Y%m%d-%H%M%S')
 run.mkdir(parents=True)
 ex = a.Experiment('cuda:0', 2, run)
-name = next(n for n,p in ex.params.items() if p.ndim == 2 and 'mlp' in n)
+name = next(n for n,p in ex.params.items() if p.ndim == 2 and 'mlp' in n and not n.startswith('visual.'))
 old = ex.inspect(name, 0, 1)['values'][0]
 # Verify assignment on the checkpoint, then exact restoration. This is an integration
 # check, not an agent-proposed improvement and not part of search statistics.
