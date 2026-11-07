@@ -420,7 +420,7 @@ def main():
     (run / 'reward-ids.json').write_text(json.dumps([r['id'] for r in ex.rows]))
     (run / 'config.json').write_text(json.dumps(vars(args), default=str))
     for round_id in range(len(ex.history), args.rounds):
-        context = dict(round=round_id+1, baseline=ex.baseline, best=ex.best,
+        context = dict(round=round_id+1, python=sys.executable, baseline=ex.baseline, best=ex.best,
                        history=ex.memory_summary(), current_edits=ex.current_edit_summary(),
                        recent=ex.history[-3:], tensors=catalog)
         ex.log(dict(event='agent_context', round=round_id+1, context=context))

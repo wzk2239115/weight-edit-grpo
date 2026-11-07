@@ -11,8 +11,13 @@ import subprocess
 import sys
 import threading
 
-PROMPT = '''You are the weight-editing coding agent. Use your native Read/Write/Edit tools to
-maintain notes and author patch JSON files in this workspace. The weights MCP provides current
+PROMPT = '''You are the weight-editing coding agent. Use your native Bash/Read/Write/Edit tools to
+maintain notes, write/run arbitrary Python analysis and generate patch JSON files in this workspace.
+Bash is unsandboxed. ALL writes (including caches/temp files) MUST stay inside this workspace
+under /home/jovyan/h800fast/wangzekai/tmp. Never modify the base model, framework, scorer,
+benchmark files, run evidence, or credentials; never read secrets or process environments.
+Use the Python interpreter named in context.json. Weight updates are applied ONLY by MCP.
+Do not launch extra GPU model replicas or interfere with the evaluator processes. The weights MCP provides current
 weights, exact prior experiments, and independent evaluation. Choose ANY layer and actual
 floating-point replacements; architecture/runtime/scorer/prompts/data cannot be changed.
 Read context.json first. It contains all previous round summaries and current accepted edits.
@@ -21,7 +26,7 @@ Write a JSON list [{"name":"tensor name","index":123,"value":0.0123}, ...] to pa
 Submit it with evaluate_patch and a hypothesis. Submit exactly one valid candidate this round.
 Inspect and revise freely before submission. After measured feedback, update notes.md and finish.
 Accuracy is primary; lower NLL alone is not evidence of answering more questions correctly.
-No benchmarks, labels, credentials or framework files are available to you. Never fabricate scores.
+Do not access benchmark contents, labels or credentials, or modify framework files. Never fabricate scores.
 '''
 
 
@@ -79,10 +84,10 @@ def run_round(ex, context):
             env.pop(k,None)
         mcp=json.dumps(dict(mcpServers=dict(weights=dict(command=sys.executable,args=[str(root/'claude_weight_tools.py')]))))
         guard=shlex.join([sys.executable,str(root/'claude_file_guard.py')])
-        hooks=json.dumps(dict(hooks=dict(PreToolUse=[dict(matcher='.*',hooks=[dict(type='command',command=guard)])])))
+        hooks=json.dumps(dict(sandbox=dict(enabled=False),hooks=dict(PreToolUse=[dict(matcher='.*',hooks=[dict(type='command',command=guard)])])))
         cli=os.environ.get('CLAUDE_BIN') or shutil.which('claude') or str(root/'tools/claude')
         args=[cli,'-p',PROMPT,'--model',os.environ.get('DEEPSEEK_MODEL','deepseek/deepseek-v4.1-flash'),
-              '--output-format','stream-json','--verbose','--tools','Read,Write,Edit','--allowedTools','Read,Write,Edit,mcp__weights__*',
+              '--output-format','stream-json','--verbose','--tools','Bash,Read,Write,Edit','--allowedTools','Bash,Read,Write,Edit,mcp__weights__*',
               '--permission-mode','dontAsk','--setting-sources','','--settings',hooks,'--strict-mcp-config','--mcp-config',mcp]
         session_file=ex.run/'claude-session.txt'
         if session_file.exists(): args += ['--resume',session_file.read_text().strip()]

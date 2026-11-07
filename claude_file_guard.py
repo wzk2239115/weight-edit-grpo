@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 r=json.load(sys.stdin)
 name=r.get('tool_name','')
-if name.startswith('mcp__weights__'):
+if name == 'Bash' or name.startswith('mcp__weights__'):
     sys.exit(0)
 if name not in ('Read','Write','Edit'):
     print('Only workspace file tools and weight-evaluator MCP tools are permitted.',file=sys.stderr)

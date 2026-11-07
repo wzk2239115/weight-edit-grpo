@@ -280,7 +280,7 @@ Claude Code is now the default agent backend. Install the official native CLI wi
 stay in tmp). The CLI uses the existing 360 credential through its Anthropic
 Messages endpoint and the `deepseek/deepseek-v4.1-flash` model. Claude Code owns the
 tool loop and resumed session. Native Read/Write/Edit are restricted to its scratch
-workspace by a PreToolUse hook; Bash is not exposed. Through MCP it can inspect
+workspace by a PreToolUse hook. Native Bash is enabled without OS sandboxing at the user’s request; its tmp-only writes and immutable-framework boundary are behavioral instructions, checked by independent scoring and file-integrity audits, not an OS-enforced restriction. Through MCP it can inspect
 current weights, retrieve arbitrary historical round diffs, and submit a JSON patch
 it authored. The independent scorer accepts only literal finite weight assignments;
 no agent-authored Python is executed by the evaluator. Historical summaries and
